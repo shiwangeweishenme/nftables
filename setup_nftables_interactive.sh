@@ -1,135 +1,123 @@
 #!/bin/bash
 
-# 检查是否有 root 权限
-if [ "$(id -u)" -ne 0 ]; then
-    echo "此脚本需要以 root 权限运行。"
-    exit 1
+echo "=============================="
+echo "🔥 nftables 多端口转发脚本 🔥"
+echo "支持 IPv4 / IPv6，批量添加规则"
+echo "=============================="
+
+# 清空变量
+IPV4_RULES=""
+IPV6_RULES=""
+ENABLE_IPV6="no"
+
+# === 开启内核转发设置 ===
+echo "👉 开启内核转发配置..."
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+sysctl -p
+
+# === 输入多个 IPv4 转发规则 ===
+echo "🔧 开始添加 IPv4 转发规则："
+
+while true; do
+  read -p "请输入本地监听端口（IPv4）: " LOCAL_PORT
+  read -p "请输入目标服务器 IPv4 地址: " REMOTE_IPV4
+  read -p "请输入目标服务器 IPv4 端口: " REMOTE_PORT
+
+  IPV4_RULES+="
+        tcp dport $LOCAL_PORT dnat to $REMOTE_IPV4:$REMOTE_PORT
+        udp dport $LOCAL_PORT dnat to $REMOTE_IPV4:$REMOTE_PORT
+  "
+
+  read -p "是否继续添加 IPv4 转发规则？(yes/no): " CONTINUE_IPV4
+  [[ "$CONTINUE_IPV4" != "yes" ]] && break
+done
+
+# === 是否启用 IPv6 ===
+read -p "是否需要添加 IPv6 转发规则？(yes/no): " ENABLE_IPV6
+
+if [ "$ENABLE_IPV6" = "yes" ]; then
+  echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
+  echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
+  sysctl -p
+
+  while true; do
+    read -p "请输入本地监听端口（IPv6）: " LOCAL_PORT6
+    read -p "请输入目标服务器 IPv6 地址（格式如 [2001:db8::1]）: " REMOTE_IPV6
+    read -p "请输入目标服务器 IPv6 端口: " REMOTE_PORT6
+
+    IPV6_RULES+="
+        tcp dport $LOCAL_PORT6 dnat to $REMOTE_IPV6:$REMOTE_PORT6
+        udp dport $LOCAL_PORT6 dnat to $REMOTE_IPV6:$REMOTE_PORT6
+    "
+
+    POSTROUTING_IPV6+="
+        ip6 daddr $REMOTE_IPV6 masquerade
+    "
+
+    read -p "是否继续添加 IPv6 转发规则？(yes/no): " CONTINUE_IPV6
+    [[ "$CONTINUE_IPV6" != "yes" ]] && break
+  done
 fi
 
-# 询问是否开启内核转发
-read -p "是否开启内核转发？(y/n): " enable_ip_forward
-if [ "$enable_ip_forward" == "y" ]; then
-    echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-    echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf  # 开启 IPv6 转发
-    sysctl -p
-    echo "内核转发已开启，包括 IPv6 转发。"
-else
-    echo "未开启内核转发。"
-fi
+# === 启用 nftables 服务 ===
+echo "👉 启动 nftables 服务..."
+systemctl enable nftables
+systemctl start nftables
 
-# 询问是否安装 nftables
-read -p "是否安装 nftables？(y/n): " install_nftables
-if [ "$install_nftables" == "y" ]; then
-    if [ -f "/etc/debian_version" ]; then
-        apt install nftables -y
-    elif [ -f "/etc/redhat-release" ]; then
-        yum install nftables -y
-    else
-        echo "不支持的 Linux 发行版，跳过安装。"
-    fi
-    systemctl enable nftables
-    systemctl start nftables
-    echo "nftables 已安装并启动。"
-else
-    echo "跳过 nftables 安装。"
-fi
+# === 写入配置文件 ===
+NFT_CONFIG="/etc/nftables.conf"
 
-# 询问是否创建或编辑 nftables 配置文件
-read -p "是否创建或编辑 nftables 配置文件？(y/n): " create_edit_config
-if [ "$create_edit_config" == "y" ]; then
-    echo "请输入转发规则配置文件的路径（默认 /etc/nftables.conf）："
-    read config_file
-    config_file=${config_file:-/etc/nftables.conf}
-    
-    # 创建/编辑配置文件
-    cat <<EOF > $config_file
+echo "👉 正在生成 nftables 配置文件..."
+
+cat > "$NFT_CONFIG" <<EOF
 #!/usr/sbin/nft -f
 
 flush ruleset
 
-# 创建一个名为 "foward" 的表，用于转发流量
-table ip foward {
-
-    # 在 prerouting 链中配置 DNAT（目的地址转换）
+# IPv4 转发表
+table ip forward {
     chain prerouting {
-        type nat hook prerouting priority 0; policy accept;
-EOF
-
-    # 询问用户是否需要添加端口转发规则
-    read -p "是否添加端口转发规则？(y/n): " add_ports
-    while [ "$add_ports" == "y" ]; do
-        read -p "请输入源端口号（例如：2222）: " source_port
-        read -p "请输入目标 IP 地址（例如：6.6.6.6）: " target_ip
-        read -p "请输入目标端口号（例如：6666）: " target_port
-        
-        echo "tcp dport $source_port dnat to $target_ip:$target_port" >> $config_file
-        echo "udp dport $source_port dnat to $target_ip:$target_port" >> $config_file
-
-        # 询问是否继续添加规则
-        read -p "是否继续添加端口转发规则？(y/n): " add_ports
-    done
-
-    # 结束 ipv4 的 prerouting 配置
-    cat <<EOF >> $config_file
+        type nat hook prerouting priority 0;
+        policy accept;
+$IPV4_RULES
     }
 
-    # 在 postrouting 链中配置 SNAT（源地址转换）
     chain postrouting {
-        type nat hook postrouting priority 100; policy accept;
-
-        masquerade
-    }
-}
-
-# IPv6 支持
-
-table ip6 foward {
-
-    # 在 prerouting 链中配置 DNAT（目的地址转换）
-    chain prerouting {
-        type nat hook prerouting priority 0; policy accept;
-EOF
-
-    # 询问用户是否需要添加 IPv6 端口转发规则
-    read -p "是否添加 IPv6 端口转发规则？(y/n): " add_ipv6_ports
-    while [ "$add_ipv6_ports" == "y" ]; do
-        read -p "请输入源端口号（例如：2222）: " source_port
-        read -p "请输入目标 IPv6 地址（例如：2001:db8::1）: " target_ip
-        read -p "请输入目标端口号（例如：6666）: " target_port
-        
-        echo "tcp dport $source_port dnat to $target_ip:$target_port" >> $config_file
-        echo "udp dport $source_port dnat to $target_ip:$target_port" >> $config_file
-
-        # 询问是否继续添加规则
-        read -p "是否继续添加 IPv6 端口转发规则？(y/n): " add_ipv6_ports
-    done
-
-    # 结束 ipv6 的 prerouting 配置
-    cat <<EOF >> $config_file
-    }
-
-    # 在 postrouting 链中配置 SNAT（源地址转换）
-    chain postrouting {
-        type nat hook postrouting priority 100; policy accept;
+        type nat hook postrouting priority 100;
+        policy accept;
 
         masquerade
     }
 }
 EOF
 
-    echo "配置文件已更新。"
+# === 如果启用了 IPv6，写入 IPv6 表 ===
+if [ "$ENABLE_IPV6" = "yes" ]; then
+cat >> "$NFT_CONFIG" <<EOF
 
-    # 加载 nftables 配置
-    nft -f $config_file
-    echo "nftables 配置已加载。"
-else
-    echo "未创建或编辑 nftables 配置文件。"
+# IPv6 转发表
+table ip6 forward6 {
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        policy accept;
+$IPV6_RULES
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority 100;
+        policy accept;
+$POSTROUTING_IPV6
+    }
+}
+EOF
 fi
 
-# 询问是否查看当前的 nftables 规则
-read -p "是否查看当前的 nftables 规则？(y/n): " view_rules
-if [ "$view_rules" == "y" ]; then
-    nft list ruleset
-fi
+# === 加载规则 ===
+echo "👉 正在加载 nftables 规则..."
+nft -f "$NFT_CONFIG"
 
-echo "脚本执行完毕。"
+# === 显示当前规则 ===
+echo "✅ 当前 nftables 规则如下："
+nft list ruleset
+
+echo "✅ 所有端口转发设置完成！"

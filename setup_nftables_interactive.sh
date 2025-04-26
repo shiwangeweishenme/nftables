@@ -153,7 +153,7 @@ EOF
         fi
 
         read -p "请输入要删除的规则编号: " RULE_NUM
-        # 清除输入中的非数字字符
+        # 清除输入中的非数字字符，去除可能的额外字符，如 ")", "(" 等
         RULE_NUM=$(echo "$RULE_NUM" | sed 's/[^0-9]*//g')
 
         if [ -z "$RULE_NUM" ] || [ "$RULE_NUM" -le 0 ] || [ "$RULE_NUM" -gt ${#RULE_LIST[@]} ]; then
@@ -165,6 +165,7 @@ EOF
         HANDLE_TO_DELETE=$(echo "$RULE_TO_DELETE" | cut -d ':' -f 1)
 
         # 删除选中的规则
+        echo "正在删除规则: $RULE_TO_DELETE"
         nft delete rule ip forward prerouting handle "$HANDLE_TO_DELETE"
         echo "✅ 规则已删除。"
       elif [ "$DELETE_OPTION" = "2" ]; then
@@ -187,7 +188,7 @@ EOF
         fi
 
         read -p "请输入要删除的规则编号: " RULE_NUM
-        # 清除输入中的非数字字符
+        # 清除输入中的非数字字符，去除可能的额外字符，如 ")", "(" 等
         RULE_NUM=$(echo "$RULE_NUM" | sed 's/[^0-9]*//g')
 
         if [ -z "$RULE_NUM" ] || [ "$RULE_NUM" -le 0 ] || [ "$RULE_NUM" -gt ${#RULE_LIST[@]} ]; then
@@ -199,6 +200,7 @@ EOF
         HANDLE_TO_DELETE=$(echo "$RULE_TO_DELETE" | cut -d ':' -f 1)
 
         # 删除选中的规则
+        echo "正在删除规则: $RULE_TO_DELETE"
         nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_DELETE"
         echo "✅ 规则已删除。"
       else

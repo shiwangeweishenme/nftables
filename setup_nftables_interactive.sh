@@ -145,13 +145,15 @@ else
 
         read -p "要删除的规则是 IPv4 还是 IPv6？(ipv4/ipv6): " RULE_TYPE
         if [ "$RULE_TYPE" = "ipv4" ]; then
-            if [ -z "$IPV4_RULES" ]; then
+            # 从配置文件中提取 IPv4 规则
+            ipv4_rules=$(grep -E 'tcp dport|udp dport' <<< "$(cat "$NFT_CONFIG")")
+            if [ -z "$ipv4_rules" ]; then
                 echo "没有可用的 IPv4 规则。"
                 continue
             fi
             echo "当前 IPv4 规则如下："
             IFS=$'\n'
-            rules=($(echo "$IPV4_RULES" | grep -E 'tcp|udp'))
+            rules=($(echo "$ipv4_rules"))
             for i in "${!rules[@]}"; do
                 echo "$((i + 1)). ${rules[$i]}"
             done
@@ -166,13 +168,15 @@ else
                 fi
             done
         elif [ "$RULE_TYPE" = "ipv6" ]; then
-            if [ -z "$IPV6_RULES" ]; then
+            # 从配置文件中提取 IPv6 规则
+            ipv6_rules=$(grep -E 'tcp dport|udp dport' <<< "$(cat "$NFT_CONFIG")" | grep -A1 'table ip6 forward6')
+            if [ -z "$ipv6_rules" ]; then
                 echo "没有可用的 IPv6 规则。"
                 continue
             fi
             echo "当前 IPv6 规则如下："
             IFS=$'\n'
-            rules=($(echo "$IPV6_RULES" | grep -E 'tcp|udp'))
+            rules=($(echo "$ipv6_rules"))
             for i in "${!rules[@]}"; do
                 echo "$((i + 1)). ${rules[$i]}"
             done

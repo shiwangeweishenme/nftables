@@ -145,8 +145,8 @@ else
 
         read -p "要删除的规则是 IPv4 还是 IPv6？(ipv4/ipv6): " RULE_TYPE
         if [ "$RULE_TYPE" = "ipv4" ]; then
-            # 从配置文件中提取 IPv4 规则
-            ipv4_rules=$(sed -n '/table ip forward/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport')
+            # 从配置文件中提取 IPv4 规则，去除多余空格
+            ipv4_rules=$(sed -n '/table ip forward/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport' | sed 's/^[[:space:]]*//')
             if [ -z "$ipv4_rules" ]; then
                 echo "没有可用的 IPv4 规则。"
                 continue
@@ -161,15 +161,16 @@ else
                 read -p "请输入要删除规则的编号: " RULE_NUMBER
                 if [[ "$RULE_NUMBER" =~ ^[0-9]+$ ]] && [ "$RULE_NUMBER" -ge 1 ] && [ "$RULE_NUMBER" -le "${#rules[@]}" ]; then
                     rule_to_delete="${rules[$((RULE_NUMBER - 1))]}"
-                    IPV4_RULES=$(echo "$IPV4_RULES" | grep -v "$rule_to_delete")
+                    # 去除 IPV4_RULES 中多余空格
+                    IPV4_RULES=$(echo "$IPV4_RULES" | sed 's/^[[:space:]]*//' | grep -v "$rule_to_delete")
                     break
                 else
                     echo "输入无效，请输入有效的规则编号。"
                 fi
             done
         elif [ "$RULE_TYPE" = "ipv6" ]; then
-            # 从配置文件中提取 IPv6 规则
-            ipv6_rules=$(sed -n '/table ip6 forward6/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport')
+            # 从配置文件中提取 IPv6 规则，去除多余空格
+            ipv6_rules=$(sed -n '/table ip6 forward6/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport' | sed 's/^[[:space:]]*//')
             if [ -z "$ipv6_rules" ]; then
                 echo "没有可用的 IPv6 规则。"
                 continue
@@ -184,7 +185,8 @@ else
                 read -p "请输入要删除规则的编号: " RULE_NUMBER
                 if [[ "$RULE_NUMBER" =~ ^[0-9]+$ ]] && [ "$RULE_NUMBER" -ge 1 ] && [ "$RULE_NUMBER" -le "${#rules[@]}" ]; then
                     rule_to_delete="${rules[$((RULE_NUMBER - 1))]}"
-                    IPV6_RULES=$(echo "$IPV6_RULES" | grep -v "$rule_to_delete")
+                    # 去除 IPV6_RULES 中多余空格
+                    IPV6_RULES=$(echo "$IPV6_RULES" | sed 's/^[[:space:]]*//' | grep -v "$rule_to_delete")
                     POSTROUTING_IPV6=$(echo "$POSTROUTING_IPV6" | grep -v "$rule_to_delete" | grep -v "$(echo "$rule_to_delete" | awk '{print $NF}' | cut -d: -f1)")
                     break
                 else

@@ -1,6 +1,42 @@
 #!/bin/bash
 
-# 颜色定义
+set -e
+
+INSTALL_PATH="/usr/local/bin/nft-port-forward.sh"
+
+echo "📦 安装 nftables 端口转发管理脚本..."
+
+# 写入脚本内容
+cat > "$INSTALL_PATH" << 'EOF'
+#!/bin/bash
+
+# === 健壮性检查 ===
+
+if [[ -z "$BASH_VERSION" ]]; then
+  echo "❌ 本脚本必须使用 bash 执行。请用以下方式运行："
+  echo "   bash \$0"
+  exit 1
+fi
+
+if ! command -v nft >/dev/null 2>&1; then
+  echo "❌ 未找到 'nft' 命令，请先安装 nftables。"
+  exit 1
+fi
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "❌ 当前系统不支持 systemctl，请手动管理 nftables。"
+  exit 1
+fi
+
+NFT_CONFIG="/etc/nftables.conf"
+TMP_EXPORT="/tmp/current_rules.nft"
+
+if ! touch "$NFT_CONFIG" 2>/dev/null; then
+  echo "❌ 无法写入 $NFT_CONFIG，请使用 root 权限运行脚本。"
+  exit 1
+fi
+
+# === 彩色输出定义 ===
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 BLUE='\033[1;34m'
@@ -11,29 +47,20 @@ echo -e "${YELLOW}=============================="
 echo -e "🔥 nftables 端口转发 🔥"
 echo -e "==============================${NC}"
 
-# 配置文件路径
-NFT_CONFIG="/etc/nftables.conf"
-TMP_EXPORT="/tmp/current_rules.nft"
-
-# === 操作模式选择 ===
 echo -e "${BLUE}请选择操作类型：${NC}"
 echo -e "1) 添加转发规则"
 echo -e "2) 删除转发规则"
 echo -e "3) 恢复系统默认设置"
 read -p "请输入操作类型（1/2/3）： " ACTION
 
-# === 添加转发规则 ===
 if [[ "$ACTION" == "1" ]]; then
-  # === 初始化变量 ===
   IPV4_RULES=""
-  ENABLE_IPV6="n"  # 默认不启用 IPv6 转发
+  ENABLE_IPV6="n"
 
-  # === 启用内核转发 ===
   echo -e "${BLUE}👉 正在开启内核转发...${NC}"
   sysctl -w net.ipv4.ip_forward=1 > /dev/null
   grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf || echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 
-  # === 添加 IPv4 转发规则 ===
   echo -e "${YELLOW}🔧 添加 IPv4 转发规则:${NC}"
   while true; do
     read -p "请输入本地监听端口（IPv4）: " LOCAL_PORT
@@ -49,22 +76,37 @@ if [[ "$ACTION" == "1" ]]; then
     [[ "$CONTINUE_IPV4" != "y" ]] && break
   done
 
-  # === 是否启用 IPv6 ===
   read -p "是否需要添加 IPv6 转发规则？(y/n): " ENABLE_IPV6
+  if [[ "$ENABLE_IPV6" == "y" ]]; then
+    echo -e "${YELLOW}🔧 添加 IPv6 转发规则:${NC}"
+    IPV6_RULES=""
+    POSTROUTING_IPV6="masquerade"
 
-  # === 启动 nftables 服务 ===
+    while true; do
+      read -p "请输入本地监听端口（IPv6）: " LOCAL_PORT6
+      read -p "请输入目标服务器 IPv6 地址: " REMOTE_IPV6
+      read -p "请输入目标服务器 IPv6 端口: " REMOTE_PORT6
+
+      IPV6_RULES+="
+        tcp dport $LOCAL_PORT6 dnat to [$REMOTE_IPV6]:$REMOTE_PORT6
+        udp dport $LOCAL_PORT6 dnat to [$REMOTE_IPV6]:$REMOTE_PORT6
+      "
+
+      read -p "是否继续添加 IPv6 转发规则？(y/n): " CONTINUE_IPV6
+      [[ "$CONTINUE_IPV6" != "y" ]] && break
+    done
+  fi
+
   echo -e "${BLUE}👉 启动 nftables 服务...${NC}"
   systemctl enable nftables > /dev/null
   systemctl start nftables
 
-  # === 写入配置文件 ===
   echo -e "${BLUE}👉 生成配置文件：${NFT_CONFIG}${NC}"
-  cat > "$NFT_CONFIG" <<EOF
+  cat > "$NFT_CONFIG" <<EOF_CONF
 #!/usr/sbin/nft -f
 
 flush ruleset
 
-# IPv4 转发表
 table ip forward {
     chain prerouting {
         type nat hook prerouting priority 0;
@@ -78,13 +120,11 @@ $IPV4_RULES
         masquerade
     }
 }
-EOF
+EOF_CONF
 
-  # === 如果启用了 IPv6，则添加 IPv6 转发部分 ===
   if [[ "$ENABLE_IPV6" == "y" ]]; then
-    cat >> "$NFT_CONFIG" <<EOF
+    cat >> "$NFT_CONFIG" <<EOF_IPV6
 
-# IPv6 转发表
 table ip6 forward6 {
     chain prerouting {
         type nat hook prerouting priority -100;
@@ -95,66 +135,108 @@ $IPV6_RULES
     chain postrouting {
         type nat hook postrouting priority 100;
         policy accept;
-$POSTROUTING_IPV6
+        $POSTROUTING_IPV6
     }
 }
-EOF
+EOF_IPV6
   fi
 
-  # === 加载规则 ===
   echo -e "${BLUE}👉 加载 nftables 规则中...${NC}"
   nft -f "$NFT_CONFIG"
 
-  # === 显示当前规则 ===
   echo -e "${GREEN}✅ 当前 nftables 规则如下：${NC}"
   nft list ruleset
-
   echo -e "${GREEN}✅ 所有端口转发设置完成！${NC}"
 fi
 
-# === 删除转发规则 ===
 if [[ "$ACTION" == "2" ]]; then
-  echo -e "${BLUE}👉 导出当前规则到 ${TMP_EXPORT}${NC}"
+  echo -e "${BLUE}👉 正在读取当前转发规则...${NC}"
   nft list ruleset > "$TMP_EXPORT"
+  TMP_MODIFIED="/tmp/modified_rules.nft"
+  cp "$TMP_EXPORT" "$TMP_MODIFIED"
 
-  echo -e "\n📝 请手动编辑该文件删除不需要的规则："
-  echo -e "   ${YELLOW}sudo nano $TMP_EXPORT${NC}"
-  echo -e "\n🔁 编辑完成后使用以下命令重新加载规则："
-  echo -e "   ${GREEN}sudo nft -f $TMP_EXPORT${NC}"
-  echo -e "\n💡 如需覆盖原配置并自动加载："
-  echo -e "   ${GREEN}sudo cp $TMP_EXPORT $NFT_CONFIG${NC}"
-  exit 0
+  MAP_IPV4=()
+  MAP_IPV6=()
+  INDEX_IPV4=0
+  INDEX_IPV6=0
+
+  echo -e "${YELLOW}📋 当前 IPv4 转发规则:${NC}"
+  while IFS= read -r line; do
+    if [[ "$line" =~ table\ ip\  ]]; then inside_ipv4=1; fi
+    if [[ "$line" =~ table\ ip6\  ]]; then inside_ipv4=0; fi
+    if [[ "$inside_ipv4" == 1 && "$line" =~ dport ]]; then
+      MAP_IPV4+=("$line")
+      echo -e "ipv4-$((INDEX_IPV4 + 1))) ${MAP_IPV4[$INDEX_IPV4]}"
+      ((INDEX_IPV4++))
+    fi
+  done < "$TMP_EXPORT"
+
+  echo -e "\n${YELLOW}📋 当前 IPv6 转发规则:${NC}"
+  inside_ipv4=0
+  while IFS= read -r line; do
+    if [[ "$line" =~ table\ ip6\  ]]; then inside_ipv6=1; fi
+    if [[ "$line" =~ table\ ip\  ]]; then inside_ipv6=0; fi
+    if [[ "$inside_ipv6" == 1 && "$line" =~ dport ]]; then
+      MAP_IPV6+=("$line")
+      echo -e "ipv6-$((INDEX_IPV6 + 1))) ${MAP_IPV6[$INDEX_IPV6]}"
+      ((INDEX_IPV6++))
+    fi
+  done < "$TMP_EXPORT"
+
+  if [[ ${#MAP_IPV4[@]} -eq 0 && ${#MAP_IPV6[@]} -eq 0 ]]; then
+    echo -e "${RED}⚠️ 未找到任何转发规则。${NC}"
+    exit 1
+  fi
+
+  read -p "请输入要删除的规则编号（例如 ipv4-1 ipv6-2）: " -a DELETE_IDS
+
+  echo -e "${BLUE}🧹 正在删除选中的规则...${NC}"
+  for ID in "${DELETE_IDS[@]}"; do
+    if [[ "$ID" =~ ^ipv4-([0-9]+)$ ]]; then
+      IDX=${BASH_REMATCH[1]}
+      if [[ $IDX -ge 1 && $IDX -le ${#MAP_IPV4[@]} ]]; then
+        sed -i "\|${MAP_IPV4[$((IDX - 1))]}|d" "$TMP_MODIFIED"
+      else
+        echo -e "${RED}❌ 无效编号: $ID${NC}"
+      fi
+    elif [[ "$ID" =~ ^ipv6-([0-9]+)$ ]]; then
+      IDX=${BASH_REMATCH[1]}
+      if [[ $IDX -ge 1 && $IDX -le ${#MAP_IPV6[@]} ]]; then
+        sed -i "\|${MAP_IPV6[$((IDX - 1))]}|d" "$TMP_MODIFIED"
+      else
+        echo -e "${RED}❌ 无效编号: $ID${NC}"
+      fi
+    else
+      echo -e "${RED}❌ 格式错误: $ID，请使用 ipv4-1 或 ipv6-1 格式${NC}"
+    fi
+  done
+
+  echo -e "${BLUE}🔁 正在加载更新后的规则...${NC}"
+  nft -f "$TMP_MODIFIED"
+  cp "$TMP_MODIFIED" "$NFT_CONFIG"
+
+  echo -e "${GREEN}✅ 当前 nftables 配置如下：${NC}"
+  nft list ruleset
 fi
 
-# === 恢复系统默认设置 ===
 if [[ "$ACTION" == "3" ]]; then
   echo -e "${RED}⚠️ 正在恢复系统默认设置...${NC}"
-
-  # 清空现有 nftables 规则
-  echo -e "${BLUE}👉 清空现有 nftables 规则...${NC}"
   nft flush ruleset
-
-  # 恢复默认配置
-  echo -e "${BLUE}👉 恢复默认 nftables 配置...${NC}"
   echo -e "# 默认 nftables 配置\n\nflush ruleset" > "$NFT_CONFIG"
-
-  # 恢复内核转发设置为默认关闭
-  echo -e "${BLUE}👉 禁用 IPv4 内核转发...${NC}"
   sysctl -w net.ipv4.ip_forward=0 > /dev/null
   sed -i '/net.ipv4.ip_forward=1/d' /etc/sysctl.conf
-
-  # 恢复 IPv6 内核转发设置
-  echo -e "${BLUE}👉 禁用 IPv6 内核转发...${NC}"
   sysctl -w net.ipv6.conf.all.forwarding=0 > /dev/null
   sysctl -w net.ipv6.conf.default.forwarding=0 > /dev/null
   sed -i '/net.ipv6.conf.all.forwarding=1/d' /etc/sysctl.conf
   sed -i '/net.ipv6.conf.default.forwarding=1/d' /etc/sysctl.conf
-
-  # 重启 nftables 服务以应用新的配置
-  echo -e "${BLUE}👉 重新加载 nftables 配置...${NC}"
   nft -f "$NFT_CONFIG"
-
-  # 显示当前规则
   echo -e "${GREEN}✅ 系统已恢复为默认 nftables 配置！${NC}"
   nft list ruleset
 fi
+EOF
+
+# 加执行权限
+chmod +x "$INSTALL_PATH"
+
+echo -e "\n✅ 安装完成！你可以使用以下命令运行脚本："
+echo -e "   ${GREEN}sudo nft-port-forward.sh${NC}"

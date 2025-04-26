@@ -117,7 +117,7 @@ EOF
   echo "✅ 所有端口转发设置完成！"
 
 elif [ "$ACTION" = "2" ]; then
-  # === 删除规则逻辑 ===
+  # === 删除规则逻辑（支持编号选择） ===
   echo "=== 删除转发规则 ==="
   echo "1. 删除 IPv4 转发规则"
   echo "2. 删除 IPv6 转发规则"
@@ -127,9 +127,9 @@ elif [ "$ACTION" = "2" ]; then
   case $DELETE_OPTION in
     1)
       echo "🔧 当前 IPv4 转发规则如下："
-      nft list chain ip forward prerouting | nl
+      nft list chain ip forward prerouting | grep ' dport ' | nl
       read -p "请输入要删除的规则编号: " RULE_NUM
-      HANDLE=$(nft list chain ip forward prerouting | sed -n "${RULE_NUM}p" | grep -o 'handle [0-9]\+' | awk '{print $2}')
+      HANDLE=$(nft list chain ip forward prerouting | grep ' dport ' | sed -n "${RULE_NUM}p" | grep -o 'handle [0-9]\+' | awk '{print $2}')
       if [ -n "$HANDLE" ]; then
         nft delete rule ip forward prerouting handle $HANDLE
         echo "✅ 规则已删除。"
@@ -139,9 +139,9 @@ elif [ "$ACTION" = "2" ]; then
       ;;
     2)
       echo "🔧 当前 IPv6 转发规则如下："
-      nft list chain ip6 forward6 prerouting | nl
+      nft list chain ip6 forward6 prerouting | grep ' dport ' | nl
       read -p "请输入要删除的规则编号: " RULE_NUM
-      HANDLE=$(nft list chain ip6 forward6 prerouting | sed -n "${RULE_NUM}p" | grep -o 'handle [0-9]\+' | awk '{print $2}')
+      HANDLE=$(nft list chain ip6 forward6 prerouting | grep ' dport ' | sed -n "${RULE_NUM}p" | grep -o 'handle [0-9]\+' | awk '{print $2}')
       if [ -n "$HANDLE" ]; then
         nft delete rule ip6 forward6 prerouting handle $HANDLE
         echo "✅ 规则已删除。"
@@ -159,8 +159,9 @@ elif [ "$ACTION" = "2" ]; then
       ;;
   esac
 
-  echo "✅ 当前 nftables 规则如下："
+  echo "📋 当前 nftables 规则如下："
   nft list ruleset
+
 else
   echo "❌ 无效输入，请输入 1 或 2。"
   exit 1

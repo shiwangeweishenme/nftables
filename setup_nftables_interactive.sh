@@ -40,14 +40,14 @@ if [ "$OPERATION" = "1" ]; then
             udp dport $LOCAL_PORT dnat to $REMOTE_IPV4:$REMOTE_PORT
         "
 
-        read -p "是否继续添加 IPv4 转发规则？(yes/no): " CONTINUE_IPV4
-        [[ "$CONTINUE_IPV4" != "yes" ]] && break
+        read -p "是否继续添加 IPv4 转发规则？(y/n): " CONTINUE_IPV4
+        [[ "$CONTINUE_IPV4" != "y" ]] && break
     done
 
     # === 是否启用 IPv6 ===
-    read -p "是否需要添加 IPv6 转发规则？(yes/no): " ENABLE_IPV6
+    read -p "是否需要添加 IPv6 转发规则？(y/n): " ENABLE_IPV6
 
-    if [ "$ENABLE_IPV6" = "yes" ]; then
+    if [ "$ENABLE_IPV6" = "y" ]; then
         echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
         echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
         sysctl -p
@@ -66,8 +66,8 @@ if [ "$OPERATION" = "1" ]; then
                 ip6 daddr $REMOTE_IPV6 masquerade
             "
 
-            read -p "是否继续添加 IPv6 转发规则？(yes/no): " CONTINUE_IPV6
-            [[ "$CONTINUE_IPV6" != "yes" ]] && break
+            read -p "是否继续添加 IPv6 转发规则？(y/n): " CONTINUE_IPV6
+            [[ "$CONTINUE_IPV6" != "y" ]] && break
         done
     fi
 
@@ -104,7 +104,7 @@ $IPV4_RULES
 EOF
 
     # === 如果启用了 IPv6，写入 IPv6 表 ===
-    if [ "$ENABLE_IPV6" = "yes" ]; then
+    if [ "$ENABLE_IPV6" = "y" ]; then
         cat >> "$NFT_CONFIG" <<EOF
 
 # IPv6 转发表
@@ -136,66 +136,58 @@ else
     NFT_CONFIG="/etc/nftables.conf"
     source <(grep -E '^IPV4_RULES|^IPV6_RULES|^POSTROUTING_IPV6|^ENABLE_IPV6' "$NFT_CONFIG")
 
-    while true; do
-        echo "--- 删除规则功能 ---"
-        read -p "是否要删除规则？(yes/no): " DELETE_RULE
-        if [ "$DELETE_RULE" != "yes" ]; then
-            break
-        fi
-
-        read -p "要删除的规则是 IPv4 还是 IPv6？(ipv4/ipv6): " RULE_TYPE
-        if [ "$RULE_TYPE" = "ipv4" ]; then
+    read -p "是否要删除规则？(y/n): " DELETE_RULE
+    if [ "$DELETE_RULE" = "y" ]; then
+        read -p "要删除的规则是 IPv4 还是 IPv6？(1/2): " RULE_TYPE
+        if [ "$RULE_TYPE" = "1" ]; then
             # 从配置文件中提取 IPv4 规则，去除多余空格
             ipv4_rules=$(sed -n '/table ip forward/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport' | sed 's/^[[:space:]]*//')
             if [ -z "$ipv4_rules" ]; then
                 echo "没有可用的 IPv4 规则。"
-                continue
+            else
+                echo "当前 IPv4 规则如下："
+                IFS=$'\n'
+                rules=($(echo "$ipv4_rules"))
+                for i in "${!rules[@]}"; do
+                    echo "$((i + 1)). ${rules[$i]}"
+                done
+                read -p "请输入要删除规则的编号（多个编号用空格分隔）: " RULE_NUMBERS
+                for RULE_NUMBER in $RULE_NUMBERS; do
+                    if [[ "$RULE_NUMBER" =~ ^[0-9]+$ ]] && [ "$RULE_NUMBER" -ge 1 ] && [ "$RULE_NUMBER" -le "${#rules[@]}" ]; then
+                        rule_to_delete="${rules[$((RULE_NUMBER - 1))]}"
+                        # 去除 IPV4_RULES 中多余空格
+                        IPV4_RULES=$(echo "$IPV4_RULES" | sed 's/^[[:space:]]*//' | grep -v "$rule_to_delete")
+                    else
+                        echo "输入无效的规则编号: $RULE_NUMBER"
+                    fi
+                done
             fi
-            echo "当前 IPv4 规则如下："
-            IFS=$'\n'
-            rules=($(echo "$ipv4_rules"))
-            for i in "${!rules[@]}"; do
-                echo "$((i + 1)). ${rules[$i]}"
-            done
-            while true; do
-                read -p "请输入要删除规则的编号: " RULE_NUMBER
-                if [[ "$RULE_NUMBER" =~ ^[0-9]+$ ]] && [ "$RULE_NUMBER" -ge 1 ] && [ "$RULE_NUMBER" -le "${#rules[@]}" ]; then
-                    rule_to_delete="${rules[$((RULE_NUMBER - 1))]}"
-                    # 去除 IPV4_RULES 中多余空格
-                    IPV4_RULES=$(echo "$IPV4_RULES" | sed 's/^[[:space:]]*//' | grep -v "$rule_to_delete")
-                    break
-                else
-                    echo "输入无效，请输入有效的规则编号。"
-                fi
-            done
-        elif [ "$RULE_TYPE" = "ipv6" ]; then
+        elif [ "$RULE_TYPE" = "2" ]; then
             # 从配置文件中提取 IPv6 规则，去除多余空格
             ipv6_rules=$(sed -n '/table ip6 forward6/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport' | sed 's/^[[:space:]]*//')
             if [ -z "$ipv6_rules" ]; then
                 echo "没有可用的 IPv6 规则。"
-                continue
+            else
+                echo "当前 IPv6 规则如下："
+                IFS=$'\n'
+                rules=($(echo "$ipv6_rules"))
+                for i in "${!rules[@]}"; do
+                    echo "$((i + 1)). ${rules[$i]}"
+                done
+                read -p "请输入要删除规则的编号（多个编号用空格分隔）: " RULE_NUMBERS
+                for RULE_NUMBER in $RULE_NUMBERS; do
+                    if [[ "$RULE_NUMBER" =~ ^[0-9]+$ ]] && [ "$RULE_NUMBER" -ge 1 ] && [ "$RULE_NUMBER" -le "${#rules[@]}" ]; then
+                        rule_to_delete="${rules[$((RULE_NUMBER - 1))]}"
+                        # 去除 IPV6_RULES 中多余空格
+                        IPV6_RULES=$(echo "$IPV6_RULES" | sed 's/^[[:space:]]*//' | grep -v "$rule_to_delete")
+                        POSTROUTING_IPV6=$(echo "$POSTROUTING_IPV6" | grep -v "$rule_to_delete" | grep -v "$(echo "$rule_to_delete" | awk '{print $NF}' | cut -d: -f1)")
+                    else
+                        echo "输入无效的规则编号: $RULE_NUMBER"
+                    fi
+                done
             fi
-            echo "当前 IPv6 规则如下："
-            IFS=$'\n'
-            rules=($(echo "$ipv6_rules"))
-            for i in "${!rules[@]}"; do
-                echo "$((i + 1)). ${rules[$i]}"
-            done
-            while true; do
-                read -p "请输入要删除规则的编号: " RULE_NUMBER
-                if [[ "$RULE_NUMBER" =~ ^[0-9]+$ ]] && [ "$RULE_NUMBER" -ge 1 ] && [ "$RULE_NUMBER" -le "${#rules[@]}" ]; then
-                    rule_to_delete="${rules[$((RULE_NUMBER - 1))]}"
-                    # 去除 IPV6_RULES 中多余空格
-                    IPV6_RULES=$(echo "$IPV6_RULES" | sed 's/^[[:space:]]*//' | grep -v "$rule_to_delete")
-                    POSTROUTING_IPV6=$(echo "$POSTROUTING_IPV6" | grep -v "$rule_to_delete" | grep -v "$(echo "$rule_to_delete" | awk '{print $NF}' | cut -d: -f1)")
-                    break
-                else
-                    echo "输入无效，请输入有效的规则编号。"
-                fi
-            done
         else
-            echo "输入无效，请输入 ipv4 或 ipv6。"
-            continue
+            echo "输入无效，请输入 1 或 2。"
         fi
 
         # 重新生成配置文件
@@ -221,7 +213,7 @@ $IPV4_RULES
 }
 EOF
 
-        if [ "$ENABLE_IPV6" = "yes" ]; then
+        if [ "$ENABLE_IPV6" = "y" ]; then
             cat >> "$NFT_CONFIG" <<EOF
 
 # IPv6 转发表
@@ -248,7 +240,7 @@ EOF
         # 显示更新后的规则
         echo "✅ 更新后的 nftables 规则如下："
         nft list ruleset
-    done
+    fi
 fi
 
 echo "✅ 所有操作完成！"    

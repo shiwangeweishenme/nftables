@@ -167,7 +167,11 @@ EOF
         # 删除选中的规则
         echo "正在删除规则: $RULE_TO_DELETE"
         nft delete rule ip forward prerouting handle "$HANDLE_TO_DELETE"
-        echo "✅ 规则已删除。"
+        if [ $? -eq 0 ]; then
+          echo "✅ 规则已删除。"
+        else
+          echo "❌ 删除失败，请检查 handle 是否正确。"
+        fi
       elif [ "$DELETE_OPTION" = "2" ]; then
         echo "🔧 当前 IPv6 转发规则如下："
         RULE_LIST=()
@@ -202,7 +206,11 @@ EOF
         # 删除选中的规则
         echo "正在删除规则: $RULE_TO_DELETE"
         nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_DELETE"
-        echo "✅ 规则已删除。"
+        if [ $? -eq 0 ]; then
+          echo "✅ 规则已删除。"
+        else
+          echo "❌ 删除失败，请检查 handle 是否正确。"
+        fi
       else
         break
       fi

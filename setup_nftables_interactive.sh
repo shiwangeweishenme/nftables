@@ -2,13 +2,14 @@
 
 echo "=============================="
 echo "🔥 nftables 多端口转发脚本 🔥"
-echo "支持 IPv4 / IPv6，添加 / 删除规则"
+echo "支持 IPv4 / IPv6，添加 / 修改 / 删除规则"
 echo "=============================="
 
 echo "请选择操作："
 echo "1. 添加转发规则"
-echo "2. 删除转发规则"
-read -p "请输入数字 (1/2): " ACTION
+echo "2. 修改转发规则"
+echo "3. 删除转发规则"
+read -p "请输入数字 (1/2/3): " ACTION
 
 if [ "$ACTION" = "1" ]; then
   # === 添加规则逻辑 ===
@@ -90,7 +91,7 @@ $IPV4_RULES
 EOF
 
   if [ "$ENABLE_IPV6" = "yes" ]; then
-  cat >> "$NFT_CONFIG" <<EOF
+    cat >> "$NFT_CONFIG" <<EOF
 
 # IPv6 转发表
 table ip6 forward6 {
@@ -117,7 +118,90 @@ EOF
   echo "✅ 所有端口转发设置完成！"
 
 elif [ "$ACTION" = "2" ]; then
-  # === 删除规则逻辑（支持编号选择） ===
+  # === 修改规则逻辑 ===
+  echo "=== 修改转发规则 ==="
+  echo "1. 修改 IPv4 转发规则"
+  echo "2. 修改 IPv6 转发规则"
+  read -p "请选择要修改的类型 (1/2): " MODIFY_OPTION
+
+  case $MODIFY_OPTION in
+    1)
+      echo "🔧 当前 IPv4 转发规则如下："
+      RULE_LIST=()
+      INDEX=1
+      while read -r LINE; do
+        HANDLE=$(echo "$LINE" | grep -o 'handle [0-9]\+' | awk '{print $2}')
+        DESC=$(echo "$LINE" | sed 's/ handle [0-9]\+//')
+        if [[ "$DESC" == *"dport"* ]]; then
+          RULE_LIST+=("$HANDLE")
+          echo "  $INDEX) $DESC"
+          INDEX=$((INDEX + 1))
+        fi
+      done < <(nft list chain ip forward prerouting)
+
+      if [ ${#RULE_LIST[@]} -eq 0 ]; then
+        echo "⚠️ 未找到 IPv4 转发规则。"
+        exit 1
+      fi
+
+      read -p "请输入要修改的规则编号: " RULE_NUM
+      HANDLE_TO_MODIFY=${RULE_LIST[$((RULE_NUM - 1))]}
+
+      if [ -n "$HANDLE_TO_MODIFY" ]; then
+        read -p "请输入新的本地监听端口（IPv4）: " NEW_LOCAL_PORT
+        read -p "请输入新的目标服务器 IPv4 地址: " NEW_REMOTE_IPV4
+        read -p "请输入新的目标服务器 IPv4 端口: " NEW_REMOTE_PORT
+
+        nft delete rule ip forward prerouting handle "$HANDLE_TO_MODIFY"
+        nft add rule ip forward prerouting tcp dport $NEW_LOCAL_PORT dnat to $NEW_REMOTE_IPV4:$NEW_REMOTE_PORT
+        nft add rule ip forward prerouting udp dport $NEW_LOCAL_PORT dnat to $NEW_REMOTE_IPV4:$NEW_REMOTE_PORT
+        echo "✅ 规则已修改。"
+      else
+        echo "❌ 无效编号。"
+      fi
+      ;;
+    2)
+      echo "🔧 当前 IPv6 转发规则如下："
+      RULE_LIST=()
+      INDEX=1
+      while read -r LINE; do
+        HANDLE=$(echo "$LINE" | grep -o 'handle [0-9]\+' | awk '{print $2}')
+        DESC=$(echo "$LINE" | sed 's/ handle [0-9]\+//')
+        if [[ "$DESC" == *"dport"* ]]; then
+          RULE_LIST+=("$HANDLE")
+          echo "  $INDEX) $DESC"
+          INDEX=$((INDEX + 1))
+        fi
+      done < <(nft list chain ip6 forward6 prerouting)
+
+      if [ ${#RULE_LIST[@]} -eq 0 ]; then
+        echo "⚠️ 未找到 IPv6 转发规则。"
+        exit 1
+      fi
+
+      read -p "请输入要修改的规则编号: " RULE_NUM
+      HANDLE_TO_MODIFY=${RULE_LIST[$((RULE_NUM - 1))]}
+
+      if [ -n "$HANDLE_TO_MODIFY" ]; then
+        read -p "请输入新的本地监听端口（IPv6）: " NEW_LOCAL_PORT6
+        read -p "请输入新的目标服务器 IPv6 地址（格式如 [2001:db8::1]）: " NEW_REMOTE_IPV6
+        read -p "请输入新的目标服务器 IPv6 端口: " NEW_REMOTE_PORT6
+
+        nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_MODIFY"
+        nft add rule ip6 forward6 prerouting tcp dport $NEW_LOCAL_PORT6 dnat to $NEW_REMOTE_IPV6:$NEW_REMOTE_PORT6
+        nft add rule ip6 forward6 prerouting udp dport $NEW_LOCAL_PORT6 dnat to $NEW_REMOTE_IPV6:$NEW_REMOTE_PORT6
+        echo "✅ 规则已修改。"
+      else
+        echo "❌ 无效编号。"
+      fi
+      ;;
+    *)
+      echo "❌ 无效选项！"
+      ;;
+  esac
+
+elif [ "$ACTION" = "3" ]; then
+  # === 删除规则逻辑 ===
   echo "=== 删除转发规则 ==="
   echo "1. 删除 IPv4 转发规则"
   echo "2. 删除 IPv6 转发规则"
@@ -127,26 +211,60 @@ elif [ "$ACTION" = "2" ]; then
   case $DELETE_OPTION in
     1)
       echo "🔧 当前 IPv4 转发规则如下："
-      nft list chain ip forward prerouting | grep ' dport ' | nl
+      RULE_LIST=()
+      INDEX=1
+      while read -r LINE; do
+        HANDLE=$(echo "$LINE" | grep -o 'handle [0-9]\+' | awk '{print $2}')
+        DESC=$(echo "$LINE" | sed 's/ handle [0-9]\+//')
+        if [[ "$DESC" == *"dport"* ]]; then
+          RULE_LIST+=("$HANDLE")
+          echo "  $INDEX) $DESC"
+          INDEX=$((INDEX + 1))
+        fi
+      done < <(nft list chain ip forward prerouting)
+
+      if [ ${#RULE_LIST[@]} -eq 0 ]; then
+        echo "⚠️ 未找到 IPv4 转发规则。"
+        exit 1
+      fi
+
       read -p "请输入要删除的规则编号: " RULE_NUM
-      HANDLE=$(nft list chain ip forward prerouting | grep ' dport ' | sed -n "${RULE_NUM}p" | grep -o 'handle [0-9]\+' | awk '{print $2}')
-      if [ -n "$HANDLE" ]; then
-        nft delete rule ip forward prerouting handle $HANDLE
+      HANDLE_TO_DELETE=${RULE_LIST[$((RULE_NUM - 1))]}
+
+      if [ -n "$HANDLE_TO_DELETE" ]; then
+        nft delete rule ip forward prerouting handle "$HANDLE_TO_DELETE"
         echo "✅ 规则已删除。"
       else
-        echo "❌ 无法识别该编号，请检查输入是否正确。"
+        echo "❌ 无效编号。"
       fi
       ;;
     2)
       echo "🔧 当前 IPv6 转发规则如下："
-      nft list chain ip6 forward6 prerouting | grep ' dport ' | nl
+      RULE_LIST=()
+      INDEX=1
+      while read -r LINE; do
+        HANDLE=$(echo "$LINE" | grep -o 'handle [0-9]\+' | awk '{print $2}')
+        DESC=$(echo "$LINE" | sed 's/ handle [0-9]\+//')
+        if [[ "$DESC" == *"dport"* ]]; then
+          RULE_LIST+=("$HANDLE")
+          echo "  $INDEX) $DESC"
+          INDEX=$((INDEX + 1))
+        fi
+      done < <(nft list chain ip6 forward6 prerouting)
+
+      if [ ${#RULE_LIST[@]} -eq 0 ]; then
+        echo "⚠️ 未找到 IPv6 转发规则。"
+        exit 1
+      fi
+
       read -p "请输入要删除的规则编号: " RULE_NUM
-      HANDLE=$(nft list chain ip6 forward6 prerouting | grep ' dport ' | sed -n "${RULE_NUM}p" | grep -o 'handle [0-9]\+' | awk '{print $2}')
-      if [ -n "$HANDLE" ]; then
-        nft delete rule ip6 forward6 prerouting handle $HANDLE
+      HANDLE_TO_DELETE=${RULE_LIST[$((RULE_NUM - 1))]}
+
+      if [ -n "$HANDLE_TO_DELETE" ]; then
+        nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_DELETE"
         echo "✅ 规则已删除。"
       else
-        echo "❌ 无法识别该编号，请检查输入是否正确。"
+        echo "❌ 无效编号。"
       fi
       ;;
     3)
@@ -159,10 +277,9 @@ elif [ "$ACTION" = "2" ]; then
       ;;
   esac
 
-  echo "📋 当前 nftables 规则如下："
+  echo "✅ 当前 nftables 规则如下："
   nft list ruleset
-
 else
-  echo "❌ 无效输入，请输入 1 或 2。"
+  echo "❌ 无效输入，请输入 1 或 2 或 3。"
   exit 1
 fi

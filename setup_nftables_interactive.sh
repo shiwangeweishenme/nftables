@@ -124,16 +124,16 @@ EOF
     nft list ruleset
     echo "✅ 所有端口转发设置完成！"
 
-  elif [ "$ACTION" = "2" ]; then
-    # === 修改规则逻辑 ===
+  elif [ "$ACTION" = "3" ]; then
+    # === 删除规则逻辑 ===
     while true; do
-      echo "=== 修改转发规则 ==="
-      echo "1. 修改 IPv4 转发规则"
-      echo "2. 修改 IPv6 转发规则"
+      echo "=== 删除转发规则 ==="
+      echo "1. 删除 IPv4 转发规则"
+      echo "2. 删除 IPv6 转发规则"
       echo "b. 返回上一级"
-      read -p "请选择要修改的类型 (1/2/b): " MODIFY_OPTION
+      read -p "请选择要删除的类型 (1/2/b): " DELETE_OPTION
 
-      if [ "$MODIFY_OPTION" = "1" ]; then
+      if [ "$DELETE_OPTION" = "1" ]; then
         echo "🔧 当前 IPv4 转发规则如下："
         RULE_LIST=()
         INDEX=1
@@ -152,7 +152,7 @@ EOF
           exit 1
         fi
 
-        read -p "请输入要修改的规则编号: " RULE_NUM
+        read -p "请输入要删除的规则编号: " RULE_NUM
         # 清除输入中的非数字字符
         RULE_NUM=$(echo "$RULE_NUM" | sed 's/[^0-9]*//g')
 
@@ -161,20 +161,13 @@ EOF
           continue
         fi
 
-        RULE_TO_MODIFY="${RULE_LIST[$((RULE_NUM - 1))]}"
-        HANDLE_TO_MODIFY=$(echo "$RULE_TO_MODIFY" | cut -d ':' -f 1)
-        DESC_TO_MODIFY=$(echo "$RULE_TO_MODIFY" | cut -d ':' -f 2)
+        RULE_TO_DELETE="${RULE_LIST[$((RULE_NUM - 1))]}"
+        HANDLE_TO_DELETE=$(echo "$RULE_TO_DELETE" | cut -d ':' -f 1)
 
-        read -p "请输入新的本地监听端口（IPv4）: " NEW_LOCAL_PORT
-        read -p "请输入新的目标服务器 IPv4 地址: " NEW_REMOTE_IPV4
-        read -p "请输入新的目标服务器 IPv4 端口: " NEW_REMOTE_PORT
-
-        # 删除旧规则并添加新规则（TCP 和 UDP 合并）
-        nft delete rule ip forward prerouting handle "$HANDLE_TO_MODIFY"
-        nft add rule ip forward prerouting tcp dport $NEW_LOCAL_PORT dnat to $NEW_REMOTE_IPV4:$NEW_REMOTE_PORT
-        nft add rule ip forward prerouting udp dport $NEW_LOCAL_PORT dnat to $NEW_REMOTE_IPV4:$NEW_REMOTE_PORT
-        echo "✅ 规则已修改。"
-      elif [ "$MODIFY_OPTION" = "2" ]; then
+        # 删除选中的规则
+        nft delete rule ip forward prerouting handle "$HANDLE_TO_DELETE"
+        echo "✅ 规则已删除。"
+      elif [ "$DELETE_OPTION" = "2" ]; then
         echo "🔧 当前 IPv6 转发规则如下："
         RULE_LIST=()
         INDEX=1
@@ -193,7 +186,7 @@ EOF
           exit 1
         fi
 
-        read -p "请输入要修改的规则编号: " RULE_NUM
+        read -p "请输入要删除的规则编号: " RULE_NUM
         # 清除输入中的非数字字符
         RULE_NUM=$(echo "$RULE_NUM" | sed 's/[^0-9]*//g')
 
@@ -202,19 +195,12 @@ EOF
           continue
         fi
 
-        RULE_TO_MODIFY="${RULE_LIST[$((RULE_NUM - 1))]}"
-        HANDLE_TO_MODIFY=$(echo "$RULE_TO_MODIFY" | cut -d ':' -f 1)
-        DESC_TO_MODIFY=$(echo "$RULE_TO_MODIFY" | cut -d ':' -f 2)
+        RULE_TO_DELETE="${RULE_LIST[$((RULE_NUM - 1))]}"
+        HANDLE_TO_DELETE=$(echo "$RULE_TO_DELETE" | cut -d ':' -f 1)
 
-        read -p "请输入新的本地监听端口（IPv6）: " NEW_LOCAL_PORT6
-        read -p "请输入新的目标服务器 IPv6 地址（格式如 [2001:db8::1]）: " NEW_REMOTE_IPV6
-        read -p "请输入新的目标服务器 IPv6 端口: " NEW_REMOTE_PORT6
-
-        # 删除旧规则并添加新规则（TCP 和 UDP 合并）
-        nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_MODIFY"
-        nft add rule ip6 forward6 prerouting tcp dport $NEW_LOCAL_PORT6 dnat to $NEW_REMOTE_IPV6:$NEW_REMOTE_PORT6
-        nft add rule ip6 forward6 prerouting udp dport $NEW_LOCAL_PORT6 dnat to $NEW_REMOTE_IPV6:$NEW_REMOTE_PORT6
-        echo "✅ 规则已修改。"
+        # 删除选中的规则
+        nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_DELETE"
+        echo "✅ 规则已删除。"
       else
         break
       fi

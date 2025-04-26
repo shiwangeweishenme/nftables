@@ -146,7 +146,7 @@ else
         read -p "要删除的规则是 IPv4 还是 IPv6？(ipv4/ipv6): " RULE_TYPE
         if [ "$RULE_TYPE" = "ipv4" ]; then
             # 从配置文件中提取 IPv4 规则
-            ipv4_rules=$(grep -E 'tcp dport|udp dport' <<< "$(cat "$NFT_CONFIG")")
+            ipv4_rules=$(sed -n '/table ip forward/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport')
             if [ -z "$ipv4_rules" ]; then
                 echo "没有可用的 IPv4 规则。"
                 continue
@@ -169,7 +169,7 @@ else
             done
         elif [ "$RULE_TYPE" = "ipv6" ]; then
             # 从配置文件中提取 IPv6 规则
-            ipv6_rules=$(grep -E 'tcp dport|udp dport' <<< "$(cat "$NFT_CONFIG")" | grep -A1 'table ip6 forward6')
+            ipv6_rules=$(sed -n '/table ip6 forward6/,/}/p' "$NFT_CONFIG" | grep -E 'tcp dport|udp dport')
             if [ -z "$ipv6_rules" ]; then
                 echo "没有可用的 IPv6 规则。"
                 continue

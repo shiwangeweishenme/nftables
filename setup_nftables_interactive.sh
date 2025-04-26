@@ -27,27 +27,32 @@ if [ "$ACTION" = "1" ]; then
     read -p "请输入目标服务器 IPv4 地址: " REMOTE_IPV4
     read -p "请输入目标服务器 IPv4 端口: " REMOTE_PORT
 
+    # 添加规则（TCP 和 UDP 同时作为一个规则）
     IPV4_RULES+="
         tcp dport $LOCAL_PORT dnat to $REMOTE_IPV4:$REMOTE_PORT
         udp dport $LOCAL_PORT dnat to $REMOTE_IPV4:$REMOTE_PORT
     "
 
-    read -p "是否继续添加 IPv4 转发规则？(yes/no): " CONTINUE_IPV4
-    [[ "$CONTINUE_IPV4" != "yes" ]] && break
+    read -p "是否继续添加 IPv4 转发规则？(y/n): " CONTINUE_IPV4
+    [[ "$CONTINUE_IPV4" != "y" ]] && break
   done
 
-  read -p "是否需要添加 IPv6 转发规则？(yes/no): " ENABLE_IPV6
+  read -p "是否需要添加 IPv6 转发规则？(y/n): " ENABLE_IPV6
 
-  if [ "$ENABLE_IPV6" = "yes" ]; then
+  if [ "$ENABLE_IPV6" = "y" ]; then
     echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
     echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
     sysctl -p
 
     while true; do
       read -p "请输入本地监听端口（IPv6）: " LOCAL_PORT6
-      read -p "请输入目标服务器 IPv6 地址（格式如 [2001:db8::1]）: " REMOTE_IPV6
+      read -p "请输入目标服务器 IPv6 地址（格式如 2001:db8::1）: " REMOTE_IPV6
       read -p "请输入目标服务器 IPv6 端口: " REMOTE_PORT6
 
+      # 自动为 IPv6 地址加上中括号
+      REMOTE_IPV6="[$REMOTE_IPV6]"
+
+      # 添加规则（TCP 和 UDP 同时作为一个规则）
       IPV6_RULES+="
           tcp dport $LOCAL_PORT6 dnat to $REMOTE_IPV6:$REMOTE_PORT6
           udp dport $LOCAL_PORT6 dnat to $REMOTE_IPV6:$REMOTE_PORT6
@@ -57,8 +62,8 @@ if [ "$ACTION" = "1" ]; then
           ip6 daddr $REMOTE_IPV6 masquerade
       "
 
-      read -p "是否继续添加 IPv6 转发规则？(yes/no): " CONTINUE_IPV6
-      [[ "$CONTINUE_IPV6" != "yes" ]] && break
+      read -p "是否继续添加 IPv6 转发规则？(y/n): " CONTINUE_IPV6
+      [[ "$CONTINUE_IPV6" != "y" ]] && break
     done
   fi
 
@@ -90,7 +95,7 @@ $IPV4_RULES
 }
 EOF
 
-  if [ "$ENABLE_IPV6" = "yes" ]; then
+  if [ "$ENABLE_IPV6" = "y" ]; then
     cat >> "$NFT_CONFIG" <<EOF
 
 # IPv6 转发表
@@ -152,6 +157,7 @@ elif [ "$ACTION" = "2" ]; then
         read -p "请输入新的目标服务器 IPv4 地址: " NEW_REMOTE_IPV4
         read -p "请输入新的目标服务器 IPv4 端口: " NEW_REMOTE_PORT
 
+        # 删除旧规则并添加新规则（TCP 和 UDP 合并）
         nft delete rule ip forward prerouting handle "$HANDLE_TO_MODIFY"
         nft add rule ip forward prerouting tcp dport $NEW_LOCAL_PORT dnat to $NEW_REMOTE_IPV4:$NEW_REMOTE_PORT
         nft add rule ip forward prerouting udp dport $NEW_LOCAL_PORT dnat to $NEW_REMOTE_IPV4:$NEW_REMOTE_PORT
@@ -187,6 +193,10 @@ elif [ "$ACTION" = "2" ]; then
         read -p "请输入新的目标服务器 IPv6 地址（格式如 [2001:db8::1]）: " NEW_REMOTE_IPV6
         read -p "请输入新的目标服务器 IPv6 端口: " NEW_REMOTE_PORT6
 
+        # 自动为 IPv6 地址加上中括号
+        NEW_REMOTE_IPV6="[$NEW_REMOTE_IPV6]"
+
+        # 删除旧规则并添加新规则（TCP 和 UDP 合并）
         nft delete rule ip6 forward6 prerouting handle "$HANDLE_TO_MODIFY"
         nft add rule ip6 forward6 prerouting tcp dport $NEW_LOCAL_PORT6 dnat to $NEW_REMOTE_IPV6:$NEW_REMOTE_PORT6
         nft add rule ip6 forward6 prerouting udp dport $NEW_LOCAL_PORT6 dnat to $NEW_REMOTE_IPV6:$NEW_REMOTE_PORT6
@@ -277,8 +287,6 @@ elif [ "$ACTION" = "3" ]; then
       ;;
   esac
 
-  echo "✅ 当前 nftables 规则如下："
-  nft list ruleset
 else
   echo "❌ 无效输入，请输入 1 或 2 或 3。"
   exit 1
